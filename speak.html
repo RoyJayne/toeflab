@@ -27,7 +27,7 @@
 <body>
 <div class="wrap">
   <h1>Speaking · Listen and Repeat</h1>
-  <p class="sub">Listen to each sentence, then record yourself. Your recordings stay on this device — only the recording length is sent to TOEFLab.</p>
+  <p class="sub">Listen to each sentence, then say exactly what you heard. Your recordings stay on this device — only the recording length is sent to TOEFLab.</p>
   <div id="msg"></div>
   <div id="list"></div>
   <button class="send" id="send" disabled onclick="sendBack()">Send to TOEFLab</button>
@@ -40,7 +40,7 @@
     if (!data.items || !data.items.length) { document.getElementById('msg').innerHTML = '<div class="msg">Open this page from TOEFLab (Daily Quest → Speaking).</div>'; return; }
     document.getElementById('list').innerHTML = data.items.map(function (it, i) {
       var r = recs[i];
-      return '<div class="item"><div class="t">' + (i + 1) + '. ' + esc(it.text) + '</div><div class="row">' +
+      return '<div class="item"><div class="t">Sentence ' + (i + 1) + '</div><div class="row">' +
         '<button onclick="play(\'' + esc(it.audio) + '\')">▶ Original</button>' +
         '<button id="rb' + i + '" onclick="rec(' + i + ')">● ' + (r ? 'Again' : 'Record') + '</button>' +
         '<button ' + (r && r.url ? '' : 'disabled') + ' onclick="play(recs[' + i + '].url)">▶ My voice</button></div>' +
