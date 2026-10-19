@@ -21,13 +21,14 @@
   .st { font-size: 0.8rem; color: var(--ink2); margin-top: 8px; }
   .st.ok { color: var(--ok); }
   .send { width: 100%; padding: 14px; margin-top: 6px; background: var(--accent); color: var(--card); border: none; font-weight: 700; font-size: 1rem; }
+  video { display: block; width: 100%; border-radius: 10px; background: #000; margin-bottom: 10px; aspect-ratio: 380 / 288; }
   .msg { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--no); margin-bottom: 12px; font-size: 0.88rem; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Speaking · Listen and Repeat</h1>
-  <p class="sub">Listen to each sentence, then say exactly what you heard. Your recordings stay on this device — only the recording length is sent to TOEFLab.</p>
+  <h1 id="h1">Speaking · Listen and Repeat</h1>
+  <p class="sub" id="sub">Listen to each sentence, then say exactly what you heard. Your recordings stay on this device — only the recording length is sent to TOEFLab.</p>
   <div id="msg"></div>
   <div id="list"></div>
   <button class="send" id="send" disabled onclick="sendBack()">Send to TOEFLab</button>
@@ -36,28 +37,40 @@
   var data = { items: [], min: 1 }, recs = [], cur = null, player = null;
   try { data = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(1))))); } catch (e) {}
   function esc(s) { return String(s || '').replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]; }); }
+  var IV = data.mode === 'interview';
+  if (IV) {
+    document.getElementById('h1').textContent = 'Speaking · Take an Interview';
+    document.getElementById('sub').textContent = 'Watch each question, then press Answer and speak (up to ' + (data.answer || 45) + ' seconds). Your recordings stay on this device — only the answer length is sent to TOEFLab.';
+  }
   function draw() {
     if (!data.items || !data.items.length) { document.getElementById('msg').innerHTML = '<div class="msg">Open this page from TOEFLab (Daily Quest → Speaking).</div>'; return; }
     document.getElementById('list').innerHTML = data.items.map(function (it, i) {
       var r = recs[i];
-      return '<div class="item"><div class="t">Sentence ' + (i + 1) + '</div><div class="row">' +
-        '<button onclick="play(\'' + esc(it.audio) + '\')">▶ Original</button>' +
-        '<button id="rb' + i + '" onclick="rec(' + i + ')">● ' + (r ? 'Again' : 'Record') + '</button>' +
+      return '<div class="item"><div class="t">' + (IV ? 'Question ' : 'Sentence ') + (i + 1) + '</div>' + (IV ? '<video id="v' + i + '" src="' + esc(it.video) + '" playsinline preload="metadata"></video>' : '') + '<div class="row">' +
+        (IV ? '<button onclick="playV(' + i + ')">▶ Interviewer</button>' : '<button onclick="play(\'' + esc(it.audio) + '\')">▶ Original</button>') +
+        '<button id="rb' + i + '" onclick="rec(' + i + ')">● ' + (r ? 'Again' : IV ? 'Answer' : 'Record') + '</button>' +
         '<button ' + (r && r.url ? '' : 'disabled') + ' onclick="play(recs[' + i + '].url)">▶ My voice</button></div>' +
         '<div class="st ' + (r && r.sec >= data.min ? 'ok' : '') + '" id="st' + i + '">' + (r ? (r.sec >= data.min ? '✓ Recorded ' + r.sec.toFixed(1) + 's' : 'Too short — record again') : '') + '</div></div>';
     }).join('');
     document.getElementById('send').disabled = !data.items.every(function (_, i) { return recs[i] && recs[i].sec >= data.min; });
   }
   function play(url) { if (player) player.pause(); if (!url) return; player = new Audio(url); player.play().catch(function () { document.getElementById('msg').innerHTML = '<div class="msg">The audio couldn’t play. Check your connection.</div>'; }); }
+  function playV(i) {
+    if (player) player.pause();
+    var v = document.getElementById('v' + i); if (!v) return;
+    v.currentTime = 0; v.play().catch(function () { document.getElementById('msg').innerHTML = '<div class="msg">The video couldn’t play. Check your connection.</div>'; });
+  }
   function rec(i) {
     if (cur) { var same = cur.i === i; cur.mr.stop(); if (same) return; }
     if (player) player.pause();
+    document.querySelectorAll('video').forEach(function (v) { v.pause(); });
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
       var mr = new MediaRecorder(stream), chunks = [];
       cur = { mr: mr, i: i, t0: Date.now() };
       mr.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
       mr.onstop = function () {
         stream.getTracks().forEach(function (t) { t.stop(); });
+        if (cur.tick) clearInterval(cur.tick);
         var sec = (Date.now() - cur.t0) / 1000; cur = null;
         recs[i] = { sec: sec, url: URL.createObjectURL(new Blob(chunks, { type: mr.mimeType || 'audio/webm' })) };
         draw();
@@ -65,6 +78,15 @@
       mr.start();
       var b = document.getElementById('rb' + i); b.textContent = '■ Stop'; b.classList.add('on');
       document.getElementById('st' + i).textContent = 'Recording… press Stop when you finish.';
+      if (IV) {
+        var limit = data.answer || 45;
+        cur.tick = setInterval(function () {
+          if (!cur || cur.i !== i) return;
+          var left = limit - (Date.now() - cur.t0) / 1000;
+          document.getElementById('st' + i).textContent = 'Recording… ' + Math.max(0, Math.ceil(left)) + 's left';
+          if (left <= 0) { clearInterval(cur.tick); cur.mr.stop(); }
+        }, 250);
+      }
     }).catch(function () {
       document.getElementById('msg').innerHTML = '<div class="msg">Microphone access was blocked. Allow the microphone for this page (lock icon in the address bar) and try again.</div>';
     });
@@ -72,7 +94,7 @@
   function sendBack() {
     var secs = data.items.map(function (_, i) { return Math.round(recs[i].sec * 10) / 10; });
     if (window.opener) {
-      window.opener.postMessage({ type: 'toeflab-speaking', secs: secs }, '*');
+      window.opener.postMessage({ type: IV ? 'toeflab-interview' : 'toeflab-speaking', secs: secs }, '*');
       document.getElementById('msg').innerHTML = '<div class="msg" style="border-color:var(--ok)">Sent! You can close this window and go back to TOEFLab.</div>';
       setTimeout(function () { window.close(); }, 1200);
     } else {
