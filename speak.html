@@ -37,7 +37,12 @@
   var data = { items: [], min: 1 }, recs = [], cur = null, player = null;
   try { data = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(1))))); } catch (e) {}
   function esc(s) { return String(s || '').replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]; }); }
-  var IV = data.mode === 'interview';
+  var IV = data.mode === 'interview', HW = data.mode === 'hw';
+  if (HW) {
+    data.items = [{ audio: data.audio || '', question: data.question || '' }];
+    document.getElementById('h1').textContent = 'Homework · Speaking';
+    document.getElementById('sub').textContent = (data.title ? data.title + ' — ' : '') + 'Record your answer (up to ' + (data.answer || 45) + ' seconds), listen to it, then press Send. Your recording is sent to TOEFLab for your teacher.';
+  }
   if (IV) {
     document.getElementById('h1').textContent = 'Speaking · Take an Interview';
     document.getElementById('sub').textContent = 'Watch each question, then press Answer and speak (up to ' + (data.answer || 45) + ' seconds). Your recordings stay on this device — only the answer length is sent to TOEFLab.';
@@ -46,6 +51,11 @@
     if (!data.items || !data.items.length) { document.getElementById('msg').innerHTML = '<div class="msg">Open this page from TOEFLab (Daily Quest → Speaking).</div>'; return; }
     document.getElementById('list').innerHTML = data.items.map(function (it, i) {
       var r = recs[i];
+      if (HW) return '<div class="item"><div class="t">Your answer</div>' + (it.question ? '<p style="margin:0 0 10px">' + esc(it.question).replace(/\n/g, '<br>') + '</p>' : '') + '<div class="row">' +
+        (it.audio ? '<button onclick="play(\'' + esc(it.audio) + '\')">▶ Question</button>' : '<button disabled>—</button>') +
+        '<button id="rb' + i + '" onclick="rec(' + i + ')">● ' + (r ? 'Again' : 'Record') + '</button>' +
+        '<button ' + (r && r.url ? '' : 'disabled') + ' onclick="play(recs[' + i + '].url)">▶ My voice</button></div>' +
+        '<div class="st ' + (r && r.sec >= data.min ? 'ok' : '') + '" id="st' + i + '">' + (r ? (r.sec >= data.min ? '✓ Recorded ' + r.sec.toFixed(1) + 's' : 'Too short — record again') : '') + '</div></div>';
       return '<div class="item"><div class="t">' + (IV ? 'Question ' : 'Sentence ') + (i + 1) + '</div>' + (IV ? '<video id="v' + i + '" src="' + esc(it.video) + '" playsinline preload="metadata"></video>' : '') + '<div class="row">' +
         (IV ? '<button onclick="playV(' + i + ')">▶ Interviewer</button>' : '<button onclick="play(\'' + esc(it.audio) + '\')">▶ Original</button>') +
         '<button id="rb' + i + '" onclick="rec(' + i + ')">● ' + (r ? 'Again' : IV ? 'Answer' : 'Record') + '</button>' +
@@ -72,13 +82,14 @@
         stream.getTracks().forEach(function (t) { t.stop(); });
         if (cur.tick) clearInterval(cur.tick);
         var sec = (Date.now() - cur.t0) / 1000; cur = null;
-        recs[i] = { sec: sec, url: URL.createObjectURL(new Blob(chunks, { type: mr.mimeType || 'audio/webm' })) };
+        var blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+        recs[i] = { sec: sec, url: URL.createObjectURL(blob), blob: blob };
         draw();
       };
       mr.start();
       var b = document.getElementById('rb' + i); b.textContent = '■ Stop'; b.classList.add('on');
       document.getElementById('st' + i).textContent = 'Recording… press Stop when you finish.';
-      if (IV) {
+      if (IV || HW) {
         var limit = data.answer || 45;
         cur.tick = setInterval(function () {
           if (!cur || cur.i !== i) return;
@@ -92,6 +103,18 @@
     });
   }
   function sendBack() {
+    if (HW) {
+      if (!window.opener) { document.getElementById('msg').innerHTML = '<div class="msg">Lost the connection to TOEFLab. Keep TOEFLab open, close this window and try again.</div>'; return; }
+      var r = recs[0], fr = new FileReader();
+      document.getElementById('send').disabled = true;
+      fr.onload = function () {
+        window.opener.postMessage({ type: 'toeflab-hw', secs: Math.round(r.sec * 10) / 10, audio: fr.result }, '*');
+        document.getElementById('msg').innerHTML = '<div class="msg" style="border-color:var(--ok)">Sent! You can close this window and go back to TOEFLab.</div>';
+        setTimeout(function () { window.close(); }, 1500);
+      };
+      fr.readAsDataURL(r.blob);
+      return;
+    }
     var secs = data.items.map(function (_, i) { return Math.round(recs[i].sec * 10) / 10; });
     if (window.opener) {
       window.opener.postMessage({ type: IV ? 'toeflab-interview' : 'toeflab-speaking', secs: secs }, '*');
